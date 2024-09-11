@@ -35,6 +35,15 @@ get_subsampled_palette <- function(n) {
 
 
 
+# Example data that matches the format users should upload
+example_table <- data.frame(
+  rat_id = c("1", "2", "3"),
+  X20240101 = c(250, 245, 260),
+  X20240102 = c(248, 244, 258),
+  X20240103 = c(246, 243, 256)
+)
+
+
 # UI
 ui <- fluidPage(
   useShinyFeedback(),  # Initialize shinyFeedback
@@ -43,10 +52,13 @@ ui <- fluidPage(
     sidebarPanel(
       fileInput("file1", "Choose CSV File", 
                 accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv")),
-      helpText("Please upload a CSV file with the first column being 'rat_id'. The remaining columns should be the date of the recording in the format %Y%m%d (e.g. 20240101).",
-               "The app will visualize weight data make predictions for the next 30 days based on linear models (weighted on the later dates since they are better predctors than earlier dates)."),
+      helpText(HTML("Please upload a CSV file with the first column being 'rat_id'. The remaining columns should contain the weight data, with the column names being the date of the recording in the format %Y%m%d (e.g. 20240101).<br><br>",
+               "When converting the excel file to csv, an 'X' might be added to the date column names. This is fine and will be removed by the app. Also no problem if your table doesn't have this.<br><br>",
+               "The app will visualize weight data make predictions for the next 30 days based on linear models (weighted on the later dates since they are better predictors than earlier dates).")),
+      tableOutput("exampleTable"),
       downloadButton("downloadData1", "Download Fig. 1 - weigths"),
-      downloadButton("downloadData2", "Download Fig. 2 - weights prediction")
+      downloadButton("downloadData2", "Download Fig. 2 - weights prediction"),
+      width = 6
     ),
     mainPanel(
       plotOutput("plot1"),
@@ -57,6 +69,12 @@ ui <- fluidPage(
 
 # Server function
 server <- function(input, output, session) {
+  
+  
+  # Display the example table
+  output$exampleTable <- renderTable({
+    example_table
+  })
   
   # Function to read and process the CSV files
   df <- reactive({
