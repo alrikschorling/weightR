@@ -1,7 +1,10 @@
 # Load packages
-pacman::p_load(shiny, shinyFeedback, tidyverse, dplyr, ggplot2, lubridate, scales)
+pacman::p_load(shiny, shinyFeedback, shinythemes, shinyjs, #shiny-related
+               tidyverse, dplyr, lubridate, #data manipulation
+               ggplot2, scales #plotting
+               )
 
-# Set themes
+# Set themes and palettes
 basic_theme <- theme_bw() + 
   theme(panel.border = element_blank(),
         panel.grid.major = element_blank(), 
@@ -24,18 +27,17 @@ theme_2 <- basic_theme +
   theme(axis.line = element_line(linewidth = 0.3), 
         axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 
-# Custom color palette
+#make custom color palette
 pal <- c("#B5B5B5", "#80607E", "#64D1C5", "#D1B856", "#8F845B", "#5C7C78", "#524410", "#470C43")
 expanded_pal <- colorRampPalette(pal)(40)
 
-# Function to subsample colors based on the number of levels of rat_id
+#create function to subsample colors based on the number of levels of rat_id
 get_subsampled_palette <- function(n) {
   expanded_pal[round(seq(1, length(expanded_pal), length.out = n))]
 }
 
 
-
-# Example data that matches the format users should upload
+#generate example data that matches the format users should upload
 example_table <- data.frame(
   rat_id = c("1", "2", "3"),
   X20240101 = c(250, 245, 260),
@@ -46,18 +48,53 @@ example_table <- data.frame(
 
 # UI
 ui <- fluidPage(
-  useShinyFeedback(),  # Initialize shinyFeedback
-  titlePanel("Rat weight loss prediction"),
+  theme = shinytheme("flatly"),
+  tags$head(
+    tags$style(HTML("
+      .btn-spacing {
+        margin-bottom: 5px; margin-right: 5px;
+      }
+    "))
+  ),
+  useShinyFeedback(),
+  useShinyjs(),
+  
+  tags$head(
+    tags$style(HTML("
+    .progress {
+      width: 100% !important;  /* Make the progress bar 100% width */
+      height: 30px !important;  /* Adjust the height of the progress bar */
+    }
+    .progress-bar {
+      font-size: 14px !important;  /* Increase the font size */
+      line-height: 30px !important;  /* Match the line height to the bar height to center text */
+      text-align: center !important;  /* Ensure the text is centered horizontally */
+    }
+  "))
+  ),
+  titlePanel("weightR - rat weight prediction"),
   sidebarLayout(
     sidebarPanel(
-      fileInput("file1", "Choose CSV File", 
+      fileInput("file1", "Choose CSV file", 
                 accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv")),
-      helpText(HTML("Please upload a CSV file with the first column being 'rat_id'. The remaining columns should contain the weight data, with the column names being the date of the recording in the format %Y%m%d (e.g. 20240101).<br><br>",
-               "When converting the excel file to csv, an 'X' might be added to the date column names. This is fine and will be removed by the app. Also no problem if your table doesn't have this.<br><br>",
-               "The app will visualize weight data make predictions for the next 30 days based on linear models (weighted on the later dates since they are better predictors than earlier dates).")),
+      helpText(HTML("Please upload a CSV file with the first column being 'rat_id' given as a number (see below).",
+                    "The remaining columns should contain the weight data, with the column names being the",
+                    "date of the recording in the format %Y%m%d (e.g. 20240101, see below).<br><br>", 
+                    
+                    "When converting the excel file to csv, an 'X' might be added to the date column names.", 
+                    "This is fine and will be removed by the app. There is also no problem if your table doesn't", 
+                    "have this.<br><br>",
+                    
+                    "The app visualizes the weights and predict trends for the next 30 days based", 
+                    "on weighted linear models. With this, you can estimate a potential humane endpoint date.
+                    <br><br>",
+                    
+                    "The models are weighted on later dates because they are better predictors.<br><br>",
+                    
+                    "Example table:<br>")),
       tableOutput("exampleTable"),
-      downloadButton("downloadData1", "Download Fig. 1 - weigths"),
-      downloadButton("downloadData2", "Download Fig. 2 - weights prediction"),
+      downloadButton("downloadData1", "Download Fig. 1 - weights", class = "btn-spacing"),  
+      downloadButton("downloadData2", "Download Fig. 2 - weights prediction", class = "btn-spacing"),  
       width = 6
     ),
     mainPanel(
@@ -70,11 +107,16 @@ ui <- fluidPage(
 # Server function
 server <- function(input, output, session) {
   
-  
   # Display the example table
   output$exampleTable <- renderTable({
     example_table
   })
+  
+  
+  # Initially disable download buttons
+  shinyjs::disable("downloadData1")
+  shinyjs::disable("downloadData2")
+  
   
   # Function to read and process the CSV files
   df <- reactive({
@@ -86,6 +128,28 @@ server <- function(input, output, session) {
       mutate(date = as_date(date, format = '%Y%m%d')) |>
       mutate(rat_id = factor(rat_id))
     df
+  })
+  
+  
+  # Observe if the file is uploaded and enable the buttons
+  observeEvent(input$file1, {
+    shinyjs::enable("downloadData1")
+    shinyjs::enable("downloadData2")
+    hideFeedback("downloadData1")  # Hide error if previously shown
+    hideFeedback("downloadData2")
+  })
+  
+  # Show error message if download button is clicked before a file is uploaded
+  observeEvent(input$downloadData1, {
+    if (is.null(input$file1)) {
+      showFeedbackDanger("downloadData1", "Please upload a file before downloading.")
+    }
+  })
+  
+  observeEvent(input$downloadData2, {
+    if (is.null(input$file1)) {
+      showFeedbackDanger("downloadData2", "Please upload a file before downloading.")
+    }
   })
   
   # Reactive expression to get the number of unique rat_ids and subsample the palette
@@ -116,12 +180,12 @@ server <- function(input, output, session) {
   df_weighted <- reactive({
     df() |> 
       group_by(rat_id) |> 
-      mutate(weight_factor = as.numeric(date - min(date) + 1)) |>  # Linear weight based on time
+      mutate(weight_factor = as.numeric(date - min(date) + 1)) |>  #linear, time-based weight
       ungroup()
   })
   
   
-  #fit a linear model for each rat_id
+  #fit a weighted linear model for each rat_id
   model_list <- reactive({
     df_weighted() |> 
       group_by(rat_id) |> 
@@ -160,13 +224,13 @@ server <- function(input, output, session) {
       geom_line() +
       geom_point() +
       facet_wrap(~rat_id) +
-      labs(title = 'Fig. 1: Recorded rats weights', x = 'Date', y = 'Weight (g)') +
+      labs(title = 'Fig 1. Recorded rats weights', x = 'Date', y = 'Weight (g)') +
       
       # Show only the line for weight_loss_17
       geom_hline(data = df_endpoints() %>% filter(weight_loss_perc == 'weight_loss_17'), 
                  aes(yintercept = threshold_weight, 
                      linetype = "17 (humane endpoint)"), 
-                 color = '#4A3734', show.legend = TRUE) +
+                 color = '#7A1916', show.legend = TRUE) +
       
       scale_linetype_manual(name = "Weight loss (%)", 
                             values = c("17 (humane endpoint)" = "dashed")) +
@@ -216,13 +280,13 @@ server <- function(input, output, session) {
                  linetype = "dashed") +
       
       scale_y_continuous(expand = expansion(mult = c(0.2, 0.2))) +
-      labs(title = 'Fig. 2: Rats weights (with predictions)', x = 'Date', y = 'Weight (g)') +
+      labs(title = 'Fig 2. Rats weights with predictions', x = 'Date', y = 'Weight (g)') +
       
       # Manually set the colors for the percentage reductions with your custom palette
       scale_color_manual(name = "Weight loss (%)", 
-                         values = c('weight_loss_13' = '#EF2509', 
-                                    'weight_loss_15' = '#9E473B', 
-                                    'weight_loss_17' = '#4A3734'),
+                         values = c('weight_loss_13' = '#FFA230', 
+                                    'weight_loss_15' = '#FF4912', 
+                                    'weight_loss_17' = '#7A1916'),
                          
                          labels = c('weight_loss_13' = '13', 
                                     'weight_loss_15' = '15', 
